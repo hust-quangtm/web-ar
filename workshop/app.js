@@ -16,6 +16,7 @@
 /**
  * Query for WebXR support. If there's no support for the `immersive-ar` mode,
  * show an error.
+ * Kiểm tra xem có hỗ trợ immersive-ar không. Nếu không thì trả về lỗi
  */
 (async function() {
   const isArSessionSupported =
@@ -23,8 +24,14 @@
       navigator.xr.isSessionSupported &&
       await navigator.xr.isSessionSupported("immersive-ar");
   if (isArSessionSupported) {
+    /**
+     * Nếu có hỗ trợ thì sẽ thêm sự kiện (add listener), thêm nút enter-ar để biết rằng có hỗ trợ
+     */
     document.getElementById("enter-ar").addEventListener("click", window.app.activateXR)
   } else {
+    /**
+     * Trả về thông báo nếu không hỗ trợ
+     */
     onNoXRDevice();
   }
 })();
@@ -40,7 +47,10 @@ class App {
   activateXR = async () => {
     try {
       /** Initialize a WebXR session using "immersive-ar". */
-      // this.xrSession = await navigator.xr.requestSession("immersive-ar");
+      /**
+       * Create the XR session using the immersive ar mode
+       */
+      this.xrSession = await navigator.xr.requestSession("immersive-ar");
       /** Alternatively, initialize a WebXR session using extra required features. */
       // this.xrSession = await navigator.xr.requestSession("immersive-ar", {
       //   requiredFeatures: ['hit-test', 'dom-overlay'],
@@ -60,6 +70,8 @@ class App {
 
   /**
    * Add a canvas element and initialize a WebGL context that is compatible with WebXR.
+   * Create a XR Canvas to draw on.
+   * We'll be using webgl to draw and rendered content
    */
   createXRCanvas() {
     this.canvas = document.createElement("canvas");
@@ -67,6 +79,8 @@ class App {
     this.gl = this.canvas.getContext("webgl", {xrCompatible: true});
 
     this.xrSession.updateRenderState({
+      // Using session's base layer that camera view will be draw on
+      // Also using to draw on top of with our render content
       baseLayer: new XRWebGLLayer(this.xrSession, this.gl)
     });
   }
@@ -84,7 +98,8 @@ class App {
     this.setupThreeJs();
 
     /** Setup an XRReferenceSpace using the "local" coordinate system. */
-    // this.localReferenceSpace = await this.xrSession.requestReferenceSpace('local');
+    // coordinate: tọa độ
+    this.localReferenceSpace = await this.xrSession.requestReferenceSpace('local');
 
     /** Create another XRReferenceSpace that has the viewer as the origin. */
     // this.viewerSpace = await this.xrSession.requestReferenceSpace('viewer');
@@ -104,27 +119,31 @@ class App {
    */
   onXRFrame = (time, frame) => {
     /** Queue up the next draw request. */
-    // this.xrSession.requestAnimationFrame(this.onXRFrame);
+    this.xrSession.requestAnimationFrame(this.onXRFrame);
 
     /** Bind the graphics framebuffer to the baseLayer's framebuffer. */
-    // const framebuffer = this.xrSession.renderState.baseLayer.framebuffer
-    // this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer)
-    // this.renderer.setFramebuffer(framebuffer);
+    const framebuffer = this.xrSession.renderState.baseLayer.framebuffer
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer)
+    this.renderer.setFramebuffer(framebuffer);
 
     /** Retrieve the pose of the device.
      * XRFrame.getViewerPose can return null while the session attempts to establish tracking. */
-    // const pose = frame.getViewerPose(this.localReferenceSpace);
-    // if (pose) {
-    //   /** In mobile AR, we only have one view. */
-    //   const view = pose.views[0];
+    const pose = frame.getViewerPose(this.localReferenceSpace); //Core function in webxr we're going to be getting the viewer pose from the frame
+    // the viewer pose indicates how the camera in positioned in 3d space and also what the orientation and rotation is like
+    if (pose) {
+    //   /** In mobile AR, we only have one view. Web XR supports VR applications support 2 view (left eye - right eye)*/
+      const view = pose.views[0];
+    // Make sure that the viewport is set to the correct size to ensure that display is displaying over entire canvas
+      const viewport = this.xrSession.renderState.baseLayer.getViewport(view);
+      this.renderer.setSize(viewport.width, viewport.height)
     //
-    //   const viewport = this.xrSession.renderState.baseLayer.getViewport(view);
-    //   this.renderer.setSize(viewport.width, viewport.height)
-    //
-    //   /** Use the view's transform matrix and projection matrix to configure the THREE.camera. */
-    //   this.camera.matrix.fromArray(view.transform.matrix)
-    //   this.camera.projectionMatrix.fromArray(view.projectionMatrix);
-    //   this.camera.updateMatrixWorld(true);
+      /** Use the view's transform matrix and projection matrix to configure the THREE.camera. */
+      // Using the data stored in view to tranform our camera
+      // So we're going to move our virtual camera in sync with the physical camera
+      // We're going to be changing the position value and rotation values and also the projection values as well
+      this.camera.matrix.fromArray(view.transform.matrix)
+      this.camera.projectionMatrix.fromArray(view.projectionMatrix);
+      this.camera.updateMatrixWorld(true);
     //
     //   /** Conduct hit test. */
     //   const hitTestResults = frame.getHitTestResults(this.hitTestSource);
@@ -142,9 +161,9 @@ class App {
     //     this.reticle.position.set(hitPose.transform.position.x, hitPose.transform.position.y, hitPose.transform.position.z)
     //     this.reticle.updateMatrixWorld(true);
     //   }
-    //   /** Render the scene with THREE.WebGLRenderer. */
-    //   this.renderer.render(this.scene, this.camera)
-    // }
+      /** Render the scene with THREE.WebGLRenderer. */
+      this.renderer.render(this.scene, this.camera)
+    }
   }
 
   /**
